@@ -30,11 +30,19 @@
     android:visibility="invisible"
     android:text="@string/share"
     />
-
+<LinearLayout android:orientation="horizontal"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content">
     <com.facebook.widget.LoginButton
         android:id="@+id/authButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="30dp" />
-
+    <Button
+            android:id="@+id/btnLoginTwitter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="30dp"
+            android:text="@string/twitterLogin"/>
+</LinearLayout>
 </LinearLayout>

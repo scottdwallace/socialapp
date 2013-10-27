@@ -6,5 +6,6 @@
     <string name="hello">Hello</string>
     <string name="app_id">220507448073111</string>
     <string name="share">Share</string>
+    <string name="twitterLogin">Login With twitter</string>
 
 </resources>

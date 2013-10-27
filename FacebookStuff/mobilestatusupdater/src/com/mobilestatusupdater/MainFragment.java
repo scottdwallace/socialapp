@@ -1,34 +1,80 @@
 package com.mobilestatusupdater;
 
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
-
-import org.json.JSONException;
-import org.json.JSONObject;
-
+import android.app.ProgressDialog;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.StrictMode;
+import android.preference.PreferenceManager;
 import android.support.v4.app.Fragment;
+import android.text.Html;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.facebook.FacebookRequestError;
 import com.facebook.HttpMethod;
+import com.facebook.Request;
 import com.facebook.RequestAsyncTask;
 import com.facebook.Response;
 import com.facebook.Session;
-import com.facebook.Request;
 import com.facebook.SessionState;
 import com.facebook.UiLifecycleHelper;
 import com.facebook.widget.LoginButton;
 
+import winterwell.jtwitter.OAuthSignpostClient;
+import winterwell.jtwitter.Twitter;
+import winterwell.jtwitter.android.AndroidTwitterLogin;
+
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.List;
+
 public class MainFragment extends Fragment {
+
+
+/*
+    TWITTER STUFF*//*
+*/
+    static String TWITTER_CONSUMER_KEY = "xg2scPwSMn6oufPmynPPPg";
+    static String TWITTER_CONSUMER_SECRET = "A7nxrmlttZYiqsPt8mfDwWZ0YNhR7CoZkD2M1RyHcE";
+
+   // static String PREFERENCE_NAME = "twitter_oauth";
+    static final String PREF_KEY_OAUTH_TOKEN = "1965418128-VQthy6SEwT1qKZFvd5Yhs7nClBUXA9Q2o8FNq10";
+    static final String PREF_KEY_OAUTH_SECRET = "pXU6jVCCKU40wFtkDtPsWMZW7j8Ah3sIScuZML5VnP1WI";
+    static final String PREF_KEY_TWITTER_LOGIN = "isTwitterLoggedIn";
+
+    static final String TWITTER_CALLBACK_URL = "oauth://my-CallBack";
+
+    static final String URL_TWITTER_AUTH = "http://api.twitter.com/oauth/request_token";
+    static final String URL_TWITTER_OAUTH_VERIFIER = "http://api.twitter.com/oauth/authorize";
+    static final String URL_TWITTER_OAUTH_TOKEN = "http://api.twitter.com/oauth/access_token";
+
+    // Login button
+    Button btnLoginTwitter;
+
+    // Twitter
+    private static Twitter twitter;
+    //private static RequestToken requestToken;
+
+    // Shared Preferences
+    SharedPreferences prefs;
+    AndroidTwitterLogin atl;
+
+
+
+    //FACEBOOK STUFF
 
 		private static final String TAG = "MainFragment";
 
@@ -38,7 +84,6 @@ public class MainFragment extends Fragment {
         private static final List<String> PERMISSIONS = Arrays.asList("publish_actions");
         private static final String PENDING_PUBLISH_KEY = "pendingPublishReauthorization";
         private boolean pendingPublishReauthorization = false;
-        
 
         private Session.StatusCallback callback = new Session.StatusCallback() {
                 @Override
@@ -48,19 +93,24 @@ public class MainFragment extends Fragment {
                 }
         };
 
-        
-
         @Override
         public void onCreate(Bundle savedInstanceState) {
                 super.onCreate(savedInstanceState);
+            if (android.os.Build.VERSION.SDK_INT > 8) {
+                StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder()
+                        .permitAll().build();
+                StrictMode.setThreadPolicy(policy);
+            }
+                prefs = getActivity().getSharedPreferences("myPrefs", 0);
                 uiHelper = new UiLifecycleHelper(getActivity(), callback);
                 uiHelper.onCreate(savedInstanceState);
-                
-                
+
+
         }
 
         private void onSessionStateChange(Session session, SessionState state,
                         Exception exception) {
+
             if (state.isOpened()) {
             	 Log.i(TAG, "Logged in...");
                 shareButton.setVisibility(View.VISIBLE);
@@ -69,8 +119,9 @@ public class MainFragment extends Fragment {
                     pendingPublishReauthorization = false;
                     publishStory(MainFragment.this.shareTxt.getText().toString());
                 }
+
             } else if (state.isClosed()) {
-            	 Log.i(TAG, "Logged Put...");
+            	 Log.i(TAG, "Logged Out...");
                 shareButton.setVisibility(View.INVISIBLE);
             }
         }
@@ -79,18 +130,27 @@ public class MainFragment extends Fragment {
         public View onCreateView(LayoutInflater inflater, ViewGroup container,
                         Bundle savedInstanceState) {
                 View view = inflater.inflate(R.layout.activity_main, container, false);
-
-                LoginButton authButton = (LoginButton) view
-                                .findViewById(R.id.authButton);
+                LoginButton authButton = (LoginButton) view.findViewById(R.id.authButton);
+                btnLoginTwitter = (Button) view.findViewById(R.id.btnLoginTwitter);
                 authButton.setFragment(this);
-                //authButton.setReadPermissions(Arrays.asList("user_likes", "user_status"));
+                authButton.setReadPermissions(Arrays.asList("user_likes", "user_status"));
                 shareButton = (Button) view.findViewById(R.id.shareButton);
                 shareTxt = (EditText) view.findViewById(R.id.editText1);
+
+                btnLoginTwitter.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View arg0) {
+                        Log.v("Twitter", "Please");
+   //                     loginWithTwitter();
+                    }
+                });
                 shareButton.setOnClickListener(new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                    	Log.v("EditText", shareTxt.getText().toString());
-                        publishStory(shareTxt.getText().toString());        
+                        Log.v("EditText", shareTxt.getText().toString());
+                        publishStory(shareTxt.getText().toString());
+                        updateTwitterStatus(shareTxt.getText().toString());
+                        shareTxt.setText("");
                     }
                 });
                 if (savedInstanceState != null) {
@@ -101,7 +161,53 @@ public class MainFragment extends Fragment {
                 
         }
 
-        @Override
+    private void updateTwitterStatus(String tweet) {
+            String userToken = prefs.getString("PREF_KEY_OAUTH_TOKEN", "NotSet");
+            String userSecret = prefs.getString("PREF_KEY_OAUTH_SECRET", "NotSet");
+     /*   if(userToken.equals("NotSet") || userSecret.equals("NotSet"))
+        {
+            loginWithTwitter(tweet);
+        }else
+        {*/
+            OAuthSignpostClient oauthClient =  new OAuthSignpostClient(TWITTER_CONSUMER_KEY, TWITTER_CONSUMER_SECRET ,PREF_KEY_OAUTH_TOKEN, PREF_KEY_OAUTH_SECRET);
+            Twitter twitter = new Twitter(null , oauthClient);
+            twitter.setStatus(tweet);
+       // }
+    }
+
+    private void loginWithTwitter(String status) {
+        final String tweetThis = status;
+        Log.v("Twitter", "Really?");
+        atl = new AndroidTwitterLogin(getActivity(),
+                TWITTER_CONSUMER_KEY,TWITTER_CONSUMER_SECRET,TWITTER_CALLBACK_URL) {
+
+            protected void onSuccess(Twitter jtwitter, String[] tokens) {
+                jtwitter.setStatus(tweetThis);
+                SharedPreferences.Editor editor = prefs.edit();
+                editor.putString("PREF_KEY_OAUTH_TOKEN", tokens[0]);
+                editor.putString("PREF_KEY_OAUTH_SECERT", tokens[1]);
+                editor.commit();
+            }
+        };
+        atl.run();
+    }
+    private void loginWithTwitter() {
+        //Log.v("Twitter", "Before ATL is set");
+        atl = new AndroidTwitterLogin(getActivity(),
+                TWITTER_CONSUMER_KEY,TWITTER_CONSUMER_SECRET,TWITTER_CALLBACK_URL) {
+
+            protected void onSuccess(Twitter jtwitter, String[] tokens) {
+                SharedPreferences.Editor editor = prefs.edit();
+                editor.putString("PREF_KEY_OAUTH_TOKEN", tokens[0]);
+                editor.putString("PREF_KEY_OAUTH_SECERT", tokens[1]);
+                editor.commit();
+                //Log.v("Twitter", "After Preff Commit");
+            }
+        };
+        atl.run();
+    }
+
+    @Override
         public void onResume() {
                 super.onResume();
                 
@@ -157,7 +263,6 @@ public class MainFragment extends Fragment {
                 }
 
                 Bundle postParams = new Bundle();
-                //stParams.putString("name", "Status Updater");
                 postParams.putString("message", shareText);
        
                 Log.v("About to Do the Request", shareText);
@@ -170,8 +275,7 @@ public class MainFragment extends Fragment {
                         try {
                             postId = graphResponse.getString("id");
                         } catch (JSONException e) {
-                            Log.i(TAG,
-                                "JSON error "+ e.getMessage());
+                            Log.i(TAG, "JSON error "+ e.getMessage());
                         }
                         FacebookRequestError error = response.getError();
                         if (error != null) {
@@ -182,8 +286,7 @@ public class MainFragment extends Fragment {
                             } else {
                                 Toast.makeText(getActivity()
                                      .getApplicationContext(), 
-                                     postId,
-                                     Toast.LENGTH_LONG).show();
+                                     postId, Toast.LENGTH_SHORT).show();
                         }
                     }
                 };
@@ -206,5 +309,4 @@ public class MainFragment extends Fragment {
             return true;
         }
 }
-
 
